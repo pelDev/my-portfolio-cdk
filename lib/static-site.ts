@@ -4,6 +4,7 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
+import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import { Metric } from "aws-cdk-lib/aws-cloudwatch";
 
 export interface StaticSiteProps {
@@ -15,14 +16,13 @@ export class StaticSite extends Construct {
   constructor(
     parent: Stack,
     name: string,
-    stageName: string,
     props: StaticSiteProps
   ) {
     super(parent, name);
 
-    const siteDomain = props.siteSubDomain + "." + props.domainName;
+    const siteDomain = props.siteSubDomain ? props.siteSubDomain + "." + props.domainName : props.domainName;
 
-    const siteBucket = new s3.Bucket(this, `SiteBucket-${stageName}`, {
+    const siteBucket = new s3.Bucket(this, `SiteBucket-${name}`, {
       bucketName: siteDomain,
       publicReadAccess: false,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -33,14 +33,14 @@ export class StaticSite extends Construct {
     });
 
     // TLS CERTIFICATE
-    const certificate = new acm.Certificate(this, `ml-cert-${stageName}`, {
+    const certificate = new acm.Certificate(this, `ml-cert-${name}`, {
       domainName: siteDomain,
       validation: acm.CertificateValidation.fromDns(),
     });
 
     const cloudfrontOAI = new cloudfront.OriginAccessIdentity(
       this,
-      `cloudfront-static-site-OAI-${stageName}`,
+      `cloudfront-static-site-OAI-${name}`,
       {
         comment: `OAI for ${name}`,
       }
@@ -84,7 +84,7 @@ export class StaticSite extends Construct {
 
     const cloudfrontDistribution = new cloudfront.CloudFrontWebDistribution(
       this,
-      `CloudFrontDistribution-${stageName}`,
+      `CloudFrontDistribution-${name}`,
       {
         viewerCertificate: viewerCert,
         originConfigs: [
@@ -113,6 +113,12 @@ export class StaticSite extends Construct {
         ],
       }
     );
+
+    new s3deploy.BucketDeployment(this, "DeployWebsite-" + name, {
+      sources: [s3deploy.Source.asset("website")],
+      destinationBucket: siteBucket,
+      distribution: cloudfrontDistribution,
+    });
 
     new CfnOutput(this, "Bucket", { value: siteBucket.bucketName });
     new CfnOutput(this, "Certificate", { value: certificate.certificateArn });
